@@ -519,9 +519,19 @@ function layout(){
     /* In generation mode a married-in person's own family sits one column to the left, in the rows just above them. */
     rev.forEach(k=>place(M.nodes.get(k),col-1));
     if(!nor.length){ o.y=y; y+=ROW; return; }
-    nor.forEach(k=>place(M.nodes.get(k),gen?col+colDelta(k):col+1));
-    const cen=gen?nor.filter(k=>colDelta(k)!==0):nor; const use=cen.length?cen:nor;
-    o.y=(pos.get(use[0]).y+pos.get(use[use.length-1]).y)/2;
+    if(gen){
+      /* Children go in the next column; spouses and links share this column, so they are laid out after the children
+         and this person is centred on the children only. With no children they take their own row first, so they can
+         never land on top of a spouse or link that sits in the same column. */
+      const kids=nor.filter(k=>colDelta(k)!==0), same=nor.filter(k=>colDelta(k)===0);
+      if(!kids.length){ o.y=y; y+=ROW; }
+      kids.forEach(k=>place(M.nodes.get(k),col+colDelta(k)));
+      if(kids.length) o.y=(pos.get(kids[0]).y+pos.get(kids[kids.length-1]).y)/2;
+      same.forEach(k=>place(M.nodes.get(k),col));
+      return;
+    }
+    nor.forEach(k=>place(M.nodes.get(k),col+1));
+    o.y=(pos.get(nor[0]).y+pos.get(nor[nor.length-1]).y)/2;
   }
   roots().forEach(r=>{ place(r,0); y+=ROW*.4; });
   const minC=vis.length?Math.min.apply(null,vis.map(o=>o.d)):0; vis.forEach(o=>{ o.d-=minC; });
@@ -529,6 +539,11 @@ function layout(){
   for(let i=0;i<widths.length;i++) if(widths[i]==null) widths[i]=0;
   const xs=[0]; for(let d=1;d<widths.length;d++) xs[d]=xs[d-1]+widths[d-1]+GAPX;
   vis.forEach(o=>{ o.x=xs[o.d]; });
+  /* Safety net: whatever the branch shapes, no two nodes in a column may sit closer than one row. */
+  const cols={}; vis.forEach((o,i)=>{ o.i=i; (cols[o.d]=cols[o.d]||[]).push(o); });
+  Object.keys(cols).forEach(c=>{ const list=cols[c].sort((p,q)=>p.y-q.y||p.i-q.i);
+    for(let i=1;i<list.length;i++){ if(list[i].y<list[i-1].y+ROW) list[i].y=list[i-1].y+ROW; }
+    const last=list[list.length-1]; if(last.y+ROW>y) y=last.y+ROW; });
   const W=widths.length?xs[xs.length-1]+widths[widths.length-1]:0;
   return {pos:pos,vis:vis,W:W,H:y,xs:xs,minC:minC,widths:widths};
 }
@@ -1005,7 +1020,7 @@ if(typeof ResizeObserver!=='undefined'){ let t=null; new ResizeObserver(()=>{ cl
 /* ---------- Boot ---------- */
 reindex(); renderAll(); syncView(); initialTree(); fitData();
 setStatus(function(){ try{ return localStorage.getItem(KEY)?'Saved in this browser':'Sample data'; }catch(e){ return 'Sample data'; } }());
-window.__gtm={S:function(){return S;},UI:UI,select:select,act:act,drawGantt:drawGantt,drawTree:drawTree,layout:function(){return L;},fromP:fromP,toP:toP,spanText:spanText,syncView:syncView};
+window.__gtm={toggleCOL:function(id){ if(COL.has(id)) COL.delete(id); else COL.add(id); },parOf:function(id){return M.par.get(id)},tyOf:function(id){return M.treeType.get(id)},S:function(){return S;},UI:UI,select:select,act:act,drawGantt:drawGantt,drawTree:drawTree,layout:function(){return L;},fromP:fromP,toP:toP,spanText:spanText,syncView:syncView};
 })();
 </script>
 
