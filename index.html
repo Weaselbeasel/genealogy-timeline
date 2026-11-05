@@ -47,7 +47,9 @@
 }
 *{box-sizing:border-box}
 [hidden]{display:none!important}
-html,body{height:100%}
+html,body{height:100%;overflow:hidden;overscroll-behavior:none}
+body{position:fixed;top:0;left:0;right:0;bottom:0}
+.scroll,#gbody,.res,textarea,#dlg .box{overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
 body{margin:0;padding-block:0;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
   background:var(--bg);color:var(--ink);font:13px/1.45 var(--font-body);-webkit-text-size-adjust:100%}
 button,input,select,textarea{font:inherit;color:inherit}
@@ -602,7 +604,11 @@ function drawTree(){
   $('#gNodes').innerHTML=nh;
   applyTree();
 }
-function applyTree(){ const t=UI.tree; $('#vp').setAttribute('transform','translate('+t.x+' '+t.y+') scale('+t.k+')'); }
+function applyTree(){
+  const t=UI.tree;
+  if(!isFinite(t.x)||!isFinite(t.y)||!isFinite(t.k)||!(t.k>0)){ UI.tree={x:24,y:24,k:.85}; }
+  else if(L){ const b=treeBox(), m=90; t.x=Math.max(m-L.W*t.k,Math.min(t.x,b.w-m)); t.y=Math.max(m-(L.H+30)*t.k,Math.min(t.y,b.h-m)); }
+  $('#vp').setAttribute('transform','translate('+t.x+' '+t.y+') scale('+t.k+')'); }
 const treeBox=()=>{ const s=$('#treeSvg'); return {w:s.clientWidth||900,h:s.clientHeight||600}; };
 function fitTree(){
   if(!L) return; const b=treeBox(); const k=clamp(Math.min(b.w/(L.W+60),b.h/(L.H+40),1),.06,1);
@@ -648,7 +654,17 @@ function initialTree(){
     if(ptrs.size===0) st=null;
   };
   svg.addEventListener('pointerup',end); svg.addEventListener('pointercancel',end);
-  svg.addEventListener('wheel',e=>{ e.preventDefault(); const r=svg.getBoundingClientRect(); zoomTree(Math.exp(-e.deltaY*.0016),e.clientX-r.left,e.clientY-r.top); },{passive:false});
+  /* Two-finger scroll or a mouse wheel pans. Pinch (or Ctrl and scroll) zooms. Deltas are capped so a fast flick can't fling the tree away. */
+  svg.addEventListener('wheel',e=>{ e.preventDefault();
+    let dx=e.deltaX,dy=e.deltaY; if(e.deltaMode===1){ dx*=16; dy*=16; } else if(e.deltaMode===2){ dx*=svg.clientWidth; dy*=svg.clientHeight; }
+    dx=clamp(dx,-120,120); dy=clamp(dy,-120,120);
+    if(e.ctrlKey||e.metaKey){ const r=svg.getBoundingClientRect(); zoomTree(Math.exp(-clamp(dy,-40,40)*.012),e.clientX-r.left,e.clientY-r.top); return; }
+    if(e.shiftKey&&!dx){ dx=dy; dy=0; }
+    UI.tree.x-=dx; UI.tree.y-=dy; applyTree(); },{passive:false});
+  /* Safari (Mac and iPad trackpads) reports pinch as gesture events. */
+  let gk=1; svg.addEventListener('gesturestart',e=>{ e.preventDefault(); gk=1; });
+  svg.addEventListener('gesturechange',e=>{ e.preventDefault(); const r=svg.getBoundingClientRect(); const f=e.scale/gk; gk=e.scale; if(isFinite(f)&&f>0) zoomTree(f,e.clientX-r.left,e.clientY-r.top); });
+  svg.addEventListener('gestureend',e=>{ e.preventDefault(); });
   svg.addEventListener('dblclick',e=>{ const nd=e.target.closest&&e.target.closest('[data-id]'); if(nd) toggleNode(nd.dataset.id); });
 })();
 function toggleNode(id){ if(!(M.kids.get(id)||[]).length) return; if(COL.has(id)) COL.delete(id); else COL.add(id); drawTree(); save(); }
@@ -757,7 +773,10 @@ function panTl(dt){ const t=UI.tl, span=t.t1-t.t0; let a=clamp(t.t0+dt,-4600,220
     if(ptrs.size===0) st=null; };
   wrap.addEventListener('pointerup',end); wrap.addEventListener('pointercancel',end);
   wrap.addEventListener('pointerleave',()=>{ $('#tip').hidden=true; });
-  wrap.addEventListener('wheel',e=>{ if(e.ctrlKey||e.metaKey){ e.preventDefault(); const r=wrap.getBoundingClientRect(); zoomTl(Math.exp(-e.deltaY*.0022),e.clientX-r.left); }
+  let gk=1; wrap.addEventListener('gesturestart',e=>{ e.preventDefault(); gk=1; });
+  wrap.addEventListener('gesturechange',e=>{ e.preventDefault(); const r=wrap.getBoundingClientRect(); const f=e.scale/gk; gk=e.scale; if(isFinite(f)&&f>0) zoomTl(f,e.clientX-r.left); });
+  wrap.addEventListener('gestureend',e=>{ e.preventDefault(); });
+  wrap.addEventListener('wheel',e=>{ if(e.ctrlKey||e.metaKey){ e.preventDefault(); const r=wrap.getBoundingClientRect(); zoomTl(Math.exp(-clamp(e.deltaY,-40,40)*.012),e.clientX-r.left); }
     else if(e.shiftKey||Math.abs(e.deltaX)>Math.abs(e.deltaY)){ e.preventDefault(); const W=wrap.clientWidth||700; panTl((e.deltaX||e.deltaY)/W*(UI.tl.t1-UI.tl.t0)); } },{passive:false});
 })();
 function tipFor(e){
