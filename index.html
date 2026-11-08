@@ -788,9 +788,9 @@ function drawGantt(){
       defs+='<linearGradient id="'+id+'" gradientUnits="userSpaceOnUse" x1="'+x1+'" x2="'+(x1+w)+'" y1="0" y2="0" style="--c:'+col+'">'
         +(it.sEst?'<stop class="gs" offset="0" stop-opacity="0"/><stop class="gs" offset="'+f+'" stop-opacity="1"/>':'<stop class="gs" offset="0" stop-opacity="1"/>')
         +(it.eEst?'<stop class="gs" offset="'+(1-f)+'" stop-opacity="1"/><stop class="gs" offset="1" stop-opacity="0"/>':'<stop class="gs" offset="1" stop-opacity="1"/>')+'</linearGradient>';
-      fill=' fill="url(#'+id+')"';
+      fill=';fill:url(#'+id+')';   /* inline style, because the stylesheet's solid .bar fill would override a fill attribute */
     }
-    shapes+='<rect class="bar'+(it.sEst||it.eEst?'':' exact')+'" style="--c:'+col+'"'+fill+' x="'+x1+'" y="'+(y+6)+'" width="'+w+'" height="'+(RH-12)+'" rx="3"'+data+'/>';
+    shapes+='<rect class="bar'+(it.sEst||it.eEst?'':' exact')+'" style="--c:'+col+fill+'" x="'+x1+'" y="'+(y+6)+'" width="'+w+'" height="'+(RH-12)+'" rx="3"'+data+'/>';
     const dt=durText(it); if(dt){ const right=x2+8+dt.length*6.4<W; shapes+='<text class="g-txt" x="'+(right?x2+6:x1-6)+'" y="'+(cy+4)+'" text-anchor="'+(right?'start':'end')+'">'+esc(dt)+'</text>'; }
   });
   const chart=$('#gchart'); chart.setAttribute('viewBox','0 0 '+W+' '+Hh); chart.setAttribute('height',Hh);
