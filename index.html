@@ -895,7 +895,9 @@ function renderInspInner(){
   h+='<div class="i-head"><input type="text" class="i-title" id="fName" value="'+esc(it.name)+'" aria-label="Name"><button class="icon" data-act="close-insp" aria-label="Close">&times;</button></div>';
   let sub=isN?(it.kind==='individual'?'Individual':it.kind==='family'?'Family':'Group or people'):'Event';
   if(isN){ const c=(M.kids.get(it.id)||[]).length; sub+=' · '+'generation '+genOf(it.id)+(c?' · '+c+' direct '+(c===1?'branch':'branches'):''); }
-  h+='<div class="i-sub">'+esc(sub)+'</div><div class="scroll">';
+  h+='<div class="i-sub">'+esc(sub)+'</div>';
+  if(isN) h+='<div style="padding:0 14px 10px"><button class="btn sm" data-act="focus" title="Collapse everything except this person\'s line and branch">Focus on this person</button></div>';
+  h+='<div class="scroll">';
   h+='<div class="sec"><h2>Basics</h2><div class="row">'
     +(isN?'<select id="fKind" aria-label="Type"><option value="individual"'+(it.kind==='individual'?' selected':'')+'>Individual</option><option value="family"'+(it.kind==='family'?' selected':'')+'>Family</option><option value="group"'+(it.kind==='group'?' selected':'')+'>Group or people</option></select>':'')
     +'<input type="text" id="fLane" list="laneList" placeholder="Timeline lane" value="'+esc(it.lane)+'" style="flex:1;min-width:110px" aria-label="Timeline lane"><datalist id="laneList">'+S.lanes.map(l=>'<option value="'+esc(l)+'">').join('')+'</datalist>'
@@ -1058,7 +1060,7 @@ function act(a,b,e){
     case 'download': { const d=new Date(); const p2=n=>(n<10?'0':'')+n; const name='genealogy-timeline-'+d.getFullYear()+'-'+p2(d.getMonth()+1)+'-'+p2(d.getDate())+'.json';
       saveFile(name,exportText()).then(function(r){ $('#dlgMsg').textContent=r==='saved'?'Saved '+name+'.':r==='declined'?'Download cancelled.':r==='started'?'Download started: '+name:'Could not create the file here. Select the text above and copy it instead.'; }); break; }
     case 'focus': { if(UI.kind!=='node'||!UI.sel) break; const keep=new Set([UI.sel].concat(ancestors(UI.sel)));
-      COL=new Set(S.nodes.filter(n=>(M.kids.get(n.id)||[]).length&&!keep.has(n.id)).map(n=>n.id)); drawTree(); centerOn(UI.sel,.9); save(); break; }
+      COL=new Set(S.nodes.filter(n=>(M.kids.get(n.id)||[]).length&&!keep.has(n.id)).map(n=>n.id)); document.body.classList.remove('insp-open'); drawTree(); centerOn(UI.sel,.9); save(); break; }
     case 'load-text': try{ loadData(JSON.parse($('#dlgText').value)); $('#dlgMsg').textContent='Loaded.'; }catch(err){ $('#dlgMsg').textContent='Could not load: '+err.message; } break;
     case 'reset': if(b.dataset.armed){ delete b.dataset.armed; b.textContent=RESET_LABEL; loadData(clone(SEED)); $('#dlg').hidden=true; } else { b.dataset.armed='1'; b.textContent=BLANK?'Click again to erase everything':'Click again to replace your data'; } break;
   }
