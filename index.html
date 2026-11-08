@@ -285,6 +285,7 @@ input[type=color]{width:34px;height:28px;padding:1px;border:1px solid var(--line
         <label class="sel" style="display:flex;align-items:center;gap:6px;color:var(--muted)">Columns <select id="cols" aria-label="Tree columns"><option value="gen">Generation</option><option value="depth">Tree depth</option></select></label>
         <label class="sel" style="display:flex;align-items:center;gap:6px;color:var(--muted)">Rows <select id="dens" aria-label="Row spacing"><option value="comfortable">Comfortable</option><option value="compact">Compact</option><option value="dense">Dense</option></select></label>
         <select id="lvl" aria-label="Show only the first levels of the tree" title="Open the tree down to a set number of levels"><option value="">Show levels&hellip;</option><option value="2">2 levels</option><option value="3">3 levels</option><option value="4">4 levels</option><option value="6">6 levels</option><option value="8">8 levels</option><option value="12">12 levels</option></select>
+        <button class="btn sm on" id="btnPack" data-act="pack" aria-pressed="true" title="Slide branches together so thin early generations share empty rows beside tall later ones">Pack</button>
         <button class="btn sm" id="btnFocus" data-act="focus" disabled title="Collapse everything except the selected person's line and branch">Focus</button>
         <button class="btn sm" data-act="zoom-in" aria-label="Zoom in">+</button>
         <button class="btn sm" data-act="zoom-out" aria-label="Zoom out">&minus;</button>
@@ -438,7 +439,7 @@ function save(){ clearTimeout(saveTimer); savePending=true; saveTimer=setTimeout
 /* Never lose the last edit: write straight away when the page is hidden, closed or switched away from. */
 window.addEventListener('pagehide',function(){ if(savePending) saveNow(); });
 document.addEventListener('visibilitychange',function(){ if(document.visibilityState==='hidden'&&savePending) saveNow(); });
-const UI={cols:'gen',dens:'comfortable',view:'tree',sel:null,kind:null,q:'',fTag:null,fCircle:null,group:'lane',showNodes:true,showEvents:true,gc:{},
+const UI={cols:'gen',dens:'comfortable',pack:true,view:'tree',sel:null,kind:null,q:'',fTag:null,fCircle:null,group:'lane',showNodes:true,showEvents:true,gc:{},
   tree:{x:24,y:0,k:.85},tl:{t0:-4090,t1:-1690}};
 
 /* ---------- Index ---------- */
@@ -532,30 +533,59 @@ let L=null;
 const colDelta=id=>{ const ty=M.treeType.get(id); return (ty==='child'||ty==='legal')?1:ty==='reverse'?-1:0; };
 function layout(){
   const forced=forceOpen(); const gen=UI.cols==='gen'; const pos=new Map(), vis=[]; let y=0;
-  function place(n,col){
-    const all=M.kids.get(n.id)||[]; const o={n:n,d:col,w:nodeW(n),y:0,x:0,has:all.length>0,col:false};
+  /* Pass 1: decide each visible node's column and how its children group. In generation mode a married-in person's own
+     family (rev) sits one column to the left, spouses and links (same) share the column, children (cen) go one right. */
+  function build(n,col){
+    const all=M.kids.get(n.id)||[]; const o={n:n,d:col,w:nodeW(n),y:0,x:0,has:all.length>0,col:false,rev:[],cen:[],same:[]};
     pos.set(n.id,o); vis.push(o);
-    if(!o.has||(COL.has(n.id)&&!forced.has(n.id))){ o.col=o.has; o.y=y; y+=ROW; return; }
-    let rev=[],nor=all;
-    if(gen){ rev=all.filter(k=>M.treeType.get(k)==='reverse'); nor=all.filter(k=>M.treeType.get(k)!=='reverse'); }
-    /* In generation mode a married-in person's own family sits one column to the left, in the rows just above them. */
-    rev.forEach(k=>place(M.nodes.get(k),col-1));
-    if(!nor.length){ o.y=y; y+=ROW; return; }
-    if(gen){
-      /* Children go in the next column; spouses and links share this column, so they are laid out after the children
-         and this person is centred on the children only. With no children they take their own row first, so they can
-         never land on top of a spouse or link that sits in the same column. */
-      const kids=nor.filter(k=>colDelta(k)!==0), same=nor.filter(k=>colDelta(k)===0);
-      if(!kids.length){ o.y=y; y+=ROW; }
-      kids.forEach(k=>place(M.nodes.get(k),col+colDelta(k)));
-      if(kids.length) o.y=(pos.get(kids[0]).y+pos.get(kids[kids.length-1]).y)/2;
-      same.forEach(k=>place(M.nodes.get(k),col));
-      return;
-    }
-    nor.forEach(k=>place(M.nodes.get(k),col+1));
-    o.y=(pos.get(nor[0]).y+pos.get(nor[nor.length-1]).y)/2;
+    if(!o.has||(COL.has(n.id)&&!forced.has(n.id))){ o.col=o.has; return o; }
+    all.forEach(k=>{ const kn=M.nodes.get(k);
+      if(gen&&M.treeType.get(k)==='reverse') o.rev.push(build(kn,col-1));
+      else if(gen&&colDelta(k)===0) o.same.push(build(kn,col));
+      else o.cen.push(build(kn,gen?col+colDelta(k):col+1)); });
+    return o;
   }
-  roots().forEach(r=>{ place(r,0); y+=ROW*.4; });
+  const tops=roots().map(r=>build(r,0));
+  if(UI.pack){
+    /* Pass 2 (packed): every branch keeps, per column, the highest and lowest row it uses. A branch slides up until it
+       only just clears the branches before it in the columns they share, so a thin early branch can sit in the empty
+       rows beside a tall later one. Brothers and sisters keep their order. */
+    const place=(AC,group,prev)=>{
+      group.forEach(k=>{ const C=packNode(k); let s=-Infinity;
+        C.forEach((tb,c)=>{ const a=AC.get(c); if(a){ const need=a[1]+ROW-tb[0]; if(need>s) s=need; } });
+        if(prev!==null&&prev+ROW>s) s=prev+ROW;
+        if(s===-Infinity) s=0;
+        k.y=s;
+        C.forEach((tb,c)=>{ const a=AC.get(c),t0=tb[0]+s,b0=tb[1]+s; if(a){ if(t0<a[0]) a[0]=t0; if(b0>a[1]) a[1]=b0; } else AC.set(c,[t0,b0]); });
+        prev=s; });
+    };
+    const packNode=o=>{
+      if(!o.has||o.col) return new Map([[o.d,[0,0]]]);
+      const AC=new Map(); place(AC,o.rev,null); place(AC,o.cen,null);
+      let py=0;
+      if(o.cen.length) py=(o.cen[0].y+o.cen[o.cen.length-1].y)/2; else if(o.rev.length) py=(o.rev[0].y+o.rev[o.rev.length-1].y)/2;
+      const a=AC.get(o.d);
+      if(a&&py>a[0]-ROW&&py<a[1]+ROW){ const up=a[0]-ROW, dn=a[1]+ROW; py=Math.abs(py-up)<=Math.abs(dn-py)?up:dn; }
+      if(a){ if(py<a[0]) a[0]=py; if(py>a[1]) a[1]=py; } else AC.set(o.d,[py,py]);
+      place(AC,o.same,py);
+      o.rev.concat(o.cen,o.same).forEach(k=>{ k.y-=py; });
+      const out=new Map(); AC.forEach((tb,c)=>out.set(c,[tb[0]-py,tb[1]-py])); return out;
+    };
+    place(new Map(),tops,null);
+    const abs=(o,base)=>{ o.y+=base; o.rev.concat(o.cen,o.same).forEach(k=>abs(k,o.y)); };
+    tops.forEach(r=>abs(r,0));
+    let lo=Infinity,hi=-Infinity; vis.forEach(o=>{ if(o.y<lo) lo=o.y; if(o.y>hi) hi=o.y; });
+    if(vis.length){ vis.forEach(o=>{ o.y-=lo; }); y=hi-lo+ROW; }
+  } else {
+    /* Pass 2 (spaced): one row per leaf, branches stacked top to bottom, parents centred on their children. */
+    const seq=o=>{
+      if(!o.has||o.col){ o.y=y; y+=ROW; return; }
+      o.rev.forEach(seq);
+      if(gen){ if(!o.cen.length){ o.y=y; y+=ROW; } o.cen.forEach(seq); if(o.cen.length) o.y=(o.cen[0].y+o.cen[o.cen.length-1].y)/2; o.same.forEach(seq); }
+      else { o.cen.forEach(seq); o.y=(o.cen[0].y+o.cen[o.cen.length-1].y)/2; }
+    };
+    tops.forEach(r=>{ seq(r); y+=ROW*.4; });
+  }
   const minC=vis.length?Math.min.apply(null,vis.map(o=>o.d)):0; vis.forEach(o=>{ o.d-=minC; });
   const widths=[]; vis.forEach(o=>{ widths[o.d]=Math.max(widths[o.d]||0,o.w+(o.has?TG()+26:0)); });
   for(let i=0;i<widths.length;i++) if(widths[i]==null) widths[i]=0;
@@ -1059,6 +1089,7 @@ function act(a,b,e){
     case 'close-data': $('#dlg').hidden=true; break;
     case 'download': { const d=new Date(); const p2=n=>(n<10?'0':'')+n; const name='genealogy-timeline-'+d.getFullYear()+'-'+p2(d.getMonth()+1)+'-'+p2(d.getDate())+'.json';
       saveFile(name,exportText()).then(function(r){ $('#dlgMsg').textContent=r==='saved'?'Saved '+name+'.':r==='declined'?'Download cancelled.':r==='started'?'Download started: '+name:'Could not create the file here. Select the text above and copy it instead.'; }); break; }
+    case 'pack': { UI.pack=!UI.pack; b.classList.toggle('on',UI.pack); b.setAttribute('aria-pressed',UI.pack); savePrefs(); drawTree(); if(UI.kind==='node'&&UI.sel) centerOn(UI.sel); else fitTree(); break; }
     case 'focus': { if(UI.kind!=='node'||!UI.sel) break; const keep=new Set([UI.sel].concat(ancestors(UI.sel)));
       COL=new Set(S.nodes.filter(n=>(M.kids.get(n.id)||[]).length&&!keep.has(n.id)).map(n=>n.id)); document.body.classList.remove('insp-open'); drawTree(); centerOn(UI.sel,.9); save(); break; }
     case 'load-text': try{ loadData(JSON.parse($('#dlgText').value)); $('#dlgMsg').textContent='Loaded.'; }catch(err){ $('#dlgMsg').textContent='Could not load: '+err.message; } break;
@@ -1067,8 +1098,8 @@ function act(a,b,e){
 }
 document.addEventListener('click',e=>{ const b=e.target.closest('[data-act]'); if(!b||b.id==='scrim'&&false) return; if(b.closest('#treeSvg')) return; act(b.dataset.act,b,e); });
 $('#q').addEventListener('input',e=>{ UI.q=e.target.value.trim(); renderRail(); renderCanvas(); });
-function loadPrefs(){ try{ const p=JSON.parse(localStorage.getItem('gtm-prefs-v1')||'null'); if(p){ if(p.cols==='depth'||p.cols==='gen') UI.cols=p.cols; if(DENS[p.dens]) UI.dens=p.dens; } }catch(e){} }
-function savePrefs(){ try{ localStorage.setItem('gtm-prefs-v1',JSON.stringify({cols:UI.cols,dens:UI.dens})); }catch(e){} }
+function loadPrefs(){ try{ const p=JSON.parse(localStorage.getItem('gtm-prefs-v1')||'null'); if(p){ if(p.cols==='depth'||p.cols==='gen') UI.cols=p.cols; if(DENS[p.dens]) UI.dens=p.dens; if(typeof p.pack==='boolean') UI.pack=p.pack; } }catch(e){} }
+function savePrefs(){ try{ localStorage.setItem('gtm-prefs-v1',JSON.stringify({cols:UI.cols,dens:UI.dens,pack:UI.pack})); }catch(e){} }
 $('#cols').addEventListener('change',e=>{ UI.cols=e.target.value; savePrefs(); drawTree(); fitTree(); });
 $('#dens').addEventListener('change',e=>{ UI.dens=e.target.value; savePrefs(); setDensity(UI.dens); drawTree(); if(UI.kind==='node'&&UI.sel) centerOn(UI.sel); else fitTree(); });
 /* Open the tree down to N levels: everything deeper is folded into its parent, with a +N badge. */
@@ -1082,7 +1113,7 @@ document.addEventListener('keydown',e=>{ if(e.key==='Escape'){ $('#dlg').hidden=
 if(typeof ResizeObserver!=='undefined'){ let t=null; new ResizeObserver(()=>{ clearTimeout(t); t=setTimeout(()=>{ if(UI.view==='timeline') drawGantt(); },60); }).observe($('#canvas')); }
 
 /* ---------- Boot ---------- */
-loadPrefs(); $('#cols').value=UI.cols; $('#dens').value=UI.dens; setDensity(UI.dens); $('#btnReset').textContent=RESET_LABEL;
+loadPrefs(); $('#cols').value=UI.cols; $('#dens').value=UI.dens; setDensity(UI.dens); $('#btnPack').classList.toggle('on',UI.pack); $('#btnPack').setAttribute('aria-pressed',UI.pack); $('#btnReset').textContent=RESET_LABEL;
 reindex(); renderAll(); syncView(); initialTree(); fitData();
 setStatus(function(){ try{ return localStorage.getItem(KEY)?'Saved in this browser':(BLANK?'Empty':'Sample data'); }catch(e){ return BLANK?'Empty':'Sample data'; } }());
 window.__gtm={toggleCOL:function(id){ if(COL.has(id)) COL.delete(id); else COL.add(id); },parOf:function(id){return M.par.get(id)},tyOf:function(id){return M.treeType.get(id)},S:function(){return S;},UI:UI,select:select,act:act,drawGantt:drawGantt,drawTree:drawTree,layout:function(){return L;},fromP:fromP,toP:toP,spanText:spanText,syncView:syncView};

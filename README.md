@@ -20,6 +20,7 @@ choose Share, then Add to Home Screen. Once it has loaded one time it works offl
 
 ## Tips for big trees
 
+- **Pack** (on by default) slides branches together so a thin early branch shares the empty rows beside a tall later one. Turn it off for one row per person in strict top-to-bottom order.
 - **Rows** (above the tree) sets the spacing: Comfortable, Compact or Dense.
 - **Show levels** opens the tree down to a chosen number of levels.
 - **Focus** collapses everything except the selected person's line and branch.
